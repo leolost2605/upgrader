@@ -48,7 +48,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
                 updated_files.add (parts[0]);
 
                 var file = File.new_for_path (parts[0]);
-                update_repo_file ("devel", "jammy", file);
+                update_repo_file ("jammy", "lunar", file);
             }
         } catch (Error e) {
             warning (e.message);
@@ -56,18 +56,18 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         }
     }
 
-    private void update_repo_file (string replace, string with, File file) {
+    private void update_repo_file (string from, string to, File file) {
         if (!file.query_exists ()) {
             return;
         }
 
         uint8[] old_contents = {};
         try {
-            print ("starting file 1");
+            print ("starting file update");
             file.load_contents (null, out old_contents, null);
-            var new_contents = ((string)old_contents).replace (replace, with);
+            var new_contents = ((string)old_contents).replace (from, to);
             file.replace_contents (new_contents.data, null, true, NONE, null, null);
-            print ("Finished");
+            print ("Finished file update");
         } catch (Error e) {
             warning (e.message);
             return;
