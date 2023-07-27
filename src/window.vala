@@ -65,9 +65,8 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         try {
             print ("starting file 1");
             file.load_contents (null, out old_contents, null);
-            uint8[] new_contents = {};
-            new_contents = (uint8[])((string)old_contents).replace (replace, with);
-            file.replace_contents (new_contents, null, true, NONE, null, null);
+            var new_contents = ((string)old_contents).replace (replace, with);
+            file.replace_contents (new_contents.data, null, true, NONE, null, null);
             print ("Finished");
         } catch (Error e) {
             warning (e.message);
