@@ -1,0 +1,6 @@
+data/io.github.leolost2605.updater.desktop.in
+data/io.github.leolost2605.updater.appdata.xml.in
+data/io.github.leolost2605.updater.gschema.xml
+src/main.vala
+src/window.vala
+src/window.ui
