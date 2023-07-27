@@ -48,7 +48,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
                 updated_files.add (parts[0]);
 
                 var file = File.new_for_path (parts[0]);
-                update_repo_file ("jammy", "devel", file);
+                update_repo_file ("devel", "jammy", file);
             }
         } catch (Error e) {
             warning (e.message);
