@@ -54,7 +54,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
                 var file = File.new_for_path (parts[0]);
                 try {
-                    yield update_repo_file ("focal", "focal", file);
+                    yield update_repo_file ("jammy", "lunar", file);
                 } catch (Error e) {
                     critical ("Failed to update source file %s: %s", file.get_path (), e.message);
                     throw new IOError.FAILED (e.message);
