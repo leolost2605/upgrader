@@ -19,24 +19,29 @@
  */
 
 public class Updater.MainWindow : Gtk.ApplicationWindow {
+    private Gtk.Button button;
+
     public MainWindow (Application app) {
         application = app;
     }
 
     construct {
-        var button = new Gtk.Button.with_label ("start update");
+        button = new Gtk.Button.with_label ("start update");
         child = button;
         default_width = 500;
         default_height = 500;
 
-        button.clicked.connect (start_update);
+        button.clicked.connect (() => start_update.begin());
     }
 
-    private void start_update () {
-        print ("start update\n");
-        var client = new Pk.Client ();
+    private async void start_update () throws Error {
+        var task = new Pk.Task () {
+            only_download = true
+        };
+
         try {
-            var results = client.get_repo_list (0, null, () => {});
+
+            var results = task.get_repo_list (0, null, () => {});
 
             var updated_files = new GenericSet<string> (str_hash, str_equal);
             foreach (var repo in results.get_repo_detail_array ()) {
@@ -48,29 +53,42 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
                 updated_files.add (parts[0]);
 
                 var file = File.new_for_path (parts[0]);
-                update_repo_file ("jammy", "lunar", file);
+                try {
+                    yield update_repo_file ("jammy", "focal", file);
+                } catch (Error e) {
+                    critical ("Failed to update source file %s: %s", file.get_path (), e.message);
+                    throw new IOError.FAILED (e.message);
+                }
             }
+
+
+            yield task.refresh_cache_async (false, null, () => {});
+            var upgradable_packes_result = yield task.get_updates_async (0, null, () => {});
+            string[] package_ids = {};
+            foreach (var package in upgradable_packes_result.get_package_array ()) {
+                package_ids += package.package_id;
+            }
+
+            yield task.update_packages_async (package_ids, null, (progress, type) => {
+                button.label = "%i %".printf (progress.percentage);
+            });
+
+            Pk.offline_trigger (REBOOT, null);
+            button.label = "Trigger set, we are finished!";
         } catch (Error e) {
             warning (e.message);
-            return;
         }
     }
 
-    private void update_repo_file (string from, string to, File file) {
+    private async void update_repo_file (string from, string to, File file) throws Error {
         if (!file.query_exists ()) {
             return;
         }
 
         uint8[] old_contents = {};
-        try {
-            print ("starting file update");
-            file.load_contents (null, out old_contents, null);
-            var new_contents = ((string)old_contents).replace (from, to);
-            file.replace_contents (new_contents.data, null, true, NONE, null, null);
-            print ("Finished file update");
-        } catch (Error e) {
-            warning (e.message);
-            return;
-        }
+        yield file.load_contents_async (null, out old_contents, null);
+
+        var new_contents = ((string)old_contents).replace (from, to);
+        yield file.replace_contents_async (new_contents.data, null, true, NONE, null, null);
     }
 }
