@@ -70,7 +70,9 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             }
 
             yield task.update_packages_async (package_ids, null, (progress, type) => {
-                button.label = "%i %".printf (progress.percentage);
+                if (type == PERCENTAGE) {
+                    button.label = "%i %".printf (progress.percentage);
+                }
             });
 
             Pk.offline_trigger (REBOOT, null);
