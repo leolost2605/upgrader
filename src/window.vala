@@ -33,6 +33,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
     }
 
     private void start_update () {
+        print ("start update\n");
         var client = new Pk.Client ();
         try {
             var results = client.get_repo_list (0, null, () => {});
