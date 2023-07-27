@@ -49,7 +49,11 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         default_width = 500;
         default_height = 500;
 
-        button.clicked.connect (next);
+        button.clicked.connect (() => {
+            cancellable.reset ();
+            button.sensitive = false;
+            next ();
+        });
     }
 
     private void next () {
@@ -151,12 +155,14 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         var backup_file = File.new_for_path (file.get_path () + "." + BACKUP_SUFFIX);
         try {
             if (!yield file.copy_async (backup_file, OVERWRITE)) {
-                throw_fatal_error (new IOError.FAILED ("Failed to create backup of repo file %s".printf (file.get_path ())));
+                throw_fatal_error (
+                    new IOError.FAILED ("Failed to create backup of repo file %s".printf (file.get_path ())),
+                    "Backing up repo file %s.".printf (file.get_path ())
+                );
                 return;
             }
         } catch (Error e) {
-            critical ("Failed to create backup of repo file %s: %s", file.get_path (), e.message);
-            throw_fatal_error (e);
+            throw_fatal_error (e, "Backing up repo file %s.".printf (file.get_path()));
             return;
         }
 
@@ -167,8 +173,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             var new_contents = ((string)old_contents).replace (old_codename, new_codename);
             yield file.replace_contents_async (new_contents.data, null, true, NONE, null, null);
         } catch (Error e) {
-            critical ("Failed to update repo file %s: %s", file.get_path (), e.message);
-            throw_fatal_error (e);
+            throw_fatal_error (e, "Updating repo file %s".printf (file.get_path ()));
         }
     }
 
