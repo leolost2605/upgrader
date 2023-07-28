@@ -141,7 +141,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
                 updated_repo_files.add (parts[0]);
 
-                yield update_repo_file ("jammy", "lunar", "/home/leonhard/Projects/test.txt");
+                yield update_repo_file ("jammy", "lunar", parts[0]);
             }
 
             next ();
