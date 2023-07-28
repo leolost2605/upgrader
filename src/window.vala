@@ -95,9 +95,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         cancellable.cancel ();
         revert_update_repos.begin ();
         if (e != null) {
-            critical (e.message);
-        } else {
-            critical (step);
+            critical (step + e.message);
         }
     }
 
@@ -173,36 +171,6 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             warning ("Failed to create subprocess: %s", e.message);
         }
     }
-
-    // private async void update_repo_file (string old_codename, string new_codename, File file) throws Error {
-    //     if (!file.query_exists ()) {
-    //         return;
-    //     }
-
-    //     var backup_file = File.new_for_path (file.get_path () + "." + BACKUP_SUFFIX);
-    //     try {
-    //         if (!yield file.copy_async (backup_file, OVERWRITE)) {
-    //             throw_fatal_error (
-    //                 new IOError.FAILED ("Failed to create backup of repo file %s".printf (file.get_path ())),
-    //                 "Backing up repo file %s.".printf (file.get_path ())
-    //             );
-    //             return;
-    //         }
-    //     } catch (Error e) {
-    //         throw_fatal_error (e, "Backing up repo file %s.".printf (file.get_path()));
-    //         return;
-    //     }
-
-    //     try {
-    //         uint8[] old_contents = {};
-    //         yield file.load_contents_async (null, out old_contents, null);
-
-    //         var new_contents = ((string)old_contents).replace (old_codename, new_codename);
-    //         yield file.replace_contents_async (new_contents.data, null, true, NONE, null, null);
-    //     } catch (Error e) {
-    //         throw_fatal_error (e, "Updating repo file %s".printf (file.get_path ()));
-    //     }
-    // }
 
     private async void update_packages () {
         var task = new Pk.Task ();
