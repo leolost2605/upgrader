@@ -101,18 +101,24 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
     private async void revert_update_repos () {
         foreach (var file_name in updated_repo_files.get_values ()) {
-            var file = File.new_for_path (file_name);
-            var backup_file = File.new_for_path (file_name + "." + BACKUP_SUFFIX);
-
-            if (!backup_file.query_exists ()) {
-                critical ("Couldn't find backup file!");
-                continue;
-            }
-
             try {
-                yield backup_file.copy_async (file, OVERWRITE);
+                var subprocess = new Subprocess (
+                    STDERR_PIPE,
+                    "pkexec",
+                    "io.github.leolost2605.updater.system-upgrade-revert.helper",
+                    file_name
+                );
+                var err_input_stream = subprocess.get_stderr_pipe ();
+
+                yield subprocess.wait_async (null);
+
+                if (subprocess.get_exit_status () != 0) {
+                    uint8[] buffer = new uint8[100];
+                    yield err_input_stream.read_async (buffer);
+                    critical ("Helper failed to revert changes: %s", ((string)buffer));
+                }
             } catch (Error e) {
-                critical ("Failed to backup from file %s: %s", backup_file.get_path (), e.message);
+                warning ("Failed to create subprocess: %s", e.message);
             }
         }
     }

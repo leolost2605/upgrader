@@ -15,4 +15,5 @@ executable('updater', updater_sources,
        install: true,
 )
 
-subdir('Helper')
+subdir('Helper/UpgradeHelper')
+subdir('Helper/RevertHelper')
