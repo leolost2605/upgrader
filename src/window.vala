@@ -94,7 +94,11 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
     private void throw_fatal_error (Error? e = null, string? step = null) {
         cancellable.cancel ();
         revert_update_repos.begin ();
-        critical (step + e.message);
+        if (e != null) {
+            critical (e.message);
+        } else {
+            critical (step);
+        }
     }
 
     private async void revert_update_repos () {
@@ -137,8 +141,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
                 updated_repo_files.add (parts[0]);
 
-                var file = File.new_for_path (parts[0]);
-                yield update_repo_file ("jammy", "lunar", file);
+                yield update_repo_file ("jammy", "lunar", "/home/leonhard/Projects/test.txt");
             }
 
             next ();
@@ -147,35 +150,59 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         }
     }
 
-    private async void update_repo_file (string old_codename, string new_codename, File file) throws Error {
-        if (!file.query_exists ()) {
-            return;
-        }
-
-        var backup_file = File.new_for_path (file.get_path () + "." + BACKUP_SUFFIX);
+    private async void update_repo_file (string old_codename, string new_codename, string path) {
         try {
-            if (!yield file.copy_async (backup_file, OVERWRITE)) {
-                throw_fatal_error (
-                    new IOError.FAILED ("Failed to create backup of repo file %s".printf (file.get_path ())),
-                    "Backing up repo file %s.".printf (file.get_path ())
-                );
-                return;
+            var subprocess = new Subprocess (
+                STDERR_PIPE,
+                "pkexec",
+                "io.github.leolost2605.updatersystem-upgrade.helper",
+                old_codename,
+                new_codename,
+                path
+            );
+            var err_input_stream = subprocess.get_stderr_pipe ();
+
+            yield subprocess.wait_async (null);
+
+            if (subprocess.get_exit_status () != 0) {
+                uint8[] buffer = new uint8[100];
+                yield err_input_stream.read_async (buffer);
+                throw_fatal_error (new IOError.FAILED ((string)buffer), "Executing helper to update a repo file.");
             }
         } catch (Error e) {
-            throw_fatal_error (e, "Backing up repo file %s.".printf (file.get_path()));
-            return;
-        }
-
-        try {
-            uint8[] old_contents = {};
-            yield file.load_contents_async (null, out old_contents, null);
-
-            var new_contents = ((string)old_contents).replace (old_codename, new_codename);
-            yield file.replace_contents_async (new_contents.data, null, true, NONE, null, null);
-        } catch (Error e) {
-            throw_fatal_error (e, "Updating repo file %s".printf (file.get_path ()));
+            warning ("Failed to create subprocess: %s", e.message);
         }
     }
+
+    // private async void update_repo_file (string old_codename, string new_codename, File file) throws Error {
+    //     if (!file.query_exists ()) {
+    //         return;
+    //     }
+
+    //     var backup_file = File.new_for_path (file.get_path () + "." + BACKUP_SUFFIX);
+    //     try {
+    //         if (!yield file.copy_async (backup_file, OVERWRITE)) {
+    //             throw_fatal_error (
+    //                 new IOError.FAILED ("Failed to create backup of repo file %s".printf (file.get_path ())),
+    //                 "Backing up repo file %s.".printf (file.get_path ())
+    //             );
+    //             return;
+    //         }
+    //     } catch (Error e) {
+    //         throw_fatal_error (e, "Backing up repo file %s.".printf (file.get_path()));
+    //         return;
+    //     }
+
+    //     try {
+    //         uint8[] old_contents = {};
+    //         yield file.load_contents_async (null, out old_contents, null);
+
+    //         var new_contents = ((string)old_contents).replace (old_codename, new_codename);
+    //         yield file.replace_contents_async (new_contents.data, null, true, NONE, null, null);
+    //     } catch (Error e) {
+    //         throw_fatal_error (e, "Updating repo file %s".printf (file.get_path ()));
+    //     }
+    // }
 
     private async void update_packages () {
         var task = new Pk.Task ();
