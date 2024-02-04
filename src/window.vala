@@ -20,6 +20,8 @@
 
 public class Updater.MainWindow : Gtk.ApplicationWindow {
     private const string BACKUP_SUFFIX = "save";
+    public const string APTD_DBUS_NAME = "org.debian.apt";
+    public const string APTD_DBUS_PATH = "/org/debian/apt";
 
     private Gtk.Button button;
 
@@ -78,12 +80,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
                 break;
 
             case FINISHED:
-                try {
-                    Pk.offline_trigger (REBOOT, null);
-                    button.label = "Trigger set, we are finished!";
-                } catch (Error e) {
-                    warning ("Failed to set offline trigger: %s", e.message);
-                }
+                button.label = "We are finished!";
                 break;
 
             default:
@@ -129,7 +126,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             var result = task.get_repo_list (0, null, () => {});
 
             if (result.get_exit_code () != SUCCESS) {
-                // throw_fatal_error (result.get_error_code ());
+                throw_fatal_error (new IOError.FAILED ("FAILED TO GET REPOS"), "FAILED TO GET REPOS");
                 return;
             }
 
@@ -145,7 +142,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
                 updated_repo_files.add (parts[0]);
 
-                yield update_repo_file ("jammy", "lunar", parts[0]);
+                yield update_repo_file ("jammy", "noble", parts[0]);
             }
 
             next ();
@@ -197,22 +194,66 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             return;
         }
 
+        yield upgrade_system ();
+
+        //  try {
+        //      var upgradable_packes_result = yield task.get_updates_async (0, null, () => {});
+        //      string[] package_ids = {};
+        //      foreach (var package in upgradable_packes_result.get_package_array ()) {
+        //          package_ids += package.package_id;
+        //      }
+
+        //      yield task.update_packages_async (package_ids, null, (progress, type) => {
+        //          if (type == PERCENTAGE) {
+        //              button.label = "%i %".printf (progress.percentage);
+        //          }
+        //      });
+
+        //      next ();
+        //  } catch (Error e) {
+        //      throw_fatal_error (e, "Updating packages.");
+        //  }
+    }
+
+    private async void upgrade_system () {
+        AptdService aptdaemon;
         try {
-            var upgradable_packes_result = yield task.get_updates_async (0, null, () => {});
-            string[] package_ids = {};
-            foreach (var package in upgradable_packes_result.get_package_array ()) {
-                package_ids += package.package_id;
-            }
+            aptdaemon = yield Bus.get_proxy (BusType.SYSTEM, APTD_DBUS_NAME, APTD_DBUS_PATH);
+        } catch (GLib.Error e) {
+            throw_fatal_error (e, "Getting aptdaemon");
+            return;
+        }
 
-            yield task.update_packages_async (package_ids, null, (progress, type) => {
-                if (type == PERCENTAGE) {
-                    button.label = "%i %".printf (progress.percentage);
-                }
-            });
-
-            next ();
+        string transaction_id = "";
+        try {
+            transaction_id = yield aptdaemon.upgrade_system (false);
         } catch (Error e) {
-            throw_fatal_error (e, "Updating packages.");
+            throw_fatal_error (e, "Upgrade system");
+            return;
+        }
+
+        AptdTransactionService transaction_proxy;
+        try {
+            transaction_proxy = yield Bus.get_proxy (BusType.SYSTEM, APTD_DBUS_NAME, transaction_id);
+        } catch (GLib.Error e) {
+            throw_fatal_error (e, "Getting transaction");
+            return;
+        }
+
+        transaction_proxy.property_changed.connect ((prop, variant) => {
+            string label;
+            transaction_proxy.get ("status_details", out label);
+            button.label = label;
+        });
+
+        transaction_proxy.finished.connect ((status) => {
+            button.label = "Finished with status: " + status;
+        });
+
+        try {
+            yield transaction_proxy.run ();
+        } catch (Error e) {
+            warning (e.message);
         }
     }
 }

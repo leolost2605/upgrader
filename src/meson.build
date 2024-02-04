@@ -2,6 +2,7 @@ updater_sources = [
   'main.vala',
   'application.vala',
   'window.vala',
+  'Apt' / 'DBus.vala'
 ]
 
 updater_deps = [
