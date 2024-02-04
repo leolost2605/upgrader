@@ -242,7 +242,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
         transaction_proxy.property_changed.connect ((prop, variant) => {
             string label;
-            transaction_proxy.get ("status_details", out label);
+            transaction_proxy.get ("status-details", out label);
             button.label = label;
         });
 
