@@ -179,7 +179,11 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
     }
 
     private async void update_packages () {
-        var task = new Pk.Task ();
+        var task = new Pk.Task () {
+            only_download = true,
+            allow_downgrade = true,
+            allow_reinstall = true
+        };
 
         try {
             var refresh_result = yield task.refresh_cache_async (false, null, () => {});
