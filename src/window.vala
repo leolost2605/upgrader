@@ -20,21 +20,40 @@
 
 public class Updater.MainWindow : Gtk.ApplicationWindow {
     private const string BACKUP_SUFFIX = "save";
-    public const string APTD_DBUS_NAME = "org.debian.apt";
-    public const string APTD_DBUS_PATH = "/org/debian/apt";
+    private const string APTD_DBUS_NAME = "org.debian.apt";
+    private const string APTD_DBUS_PATH = "/org/debian/apt";
+
+    public signal void state_changed ();
 
     private Gtk.Button button;
+
+    public enum State {
+        UP_TO_DATE,
+        CHECKING,
+        AVAILABLE,
+        WORKING,
+        RESTART_REQUIRED,
+        ERROR
+    }
+
+    public struct CurrentState {
+        State state;
+        string status;
+        int progress;
+    }
 
     private enum ProgressStep {
         PREPARING,
         UPDATING_REPOS,
-        INSTALLING_UPDATES,
-        FINISHED
+        REFRESHING,
+        UPGRADING
     }
 
-    private ProgressStep current_step;
+    private CurrentState current_state;
+    private ProgressStep current_step = PREPARING;
     private Cancellable cancellable;
     private GenericSet<string> updated_repo_files;
+    private AptTransaction? transaction_proxy;
 
     public MainWindow (Application app) {
         application = app;
@@ -44,6 +63,12 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         cancellable = new Cancellable ();
         updated_repo_files = new GenericSet<string> (str_hash, str_equal);
 
+        current_state = {
+            AVAILABLE,
+            "An upgrade to OS 8 is available",
+            0
+        };
+
         current_step = PREPARING;
 
         button = new Gtk.Button.with_label ("start update");
@@ -52,10 +77,20 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         default_height = 500;
 
         button.clicked.connect (() => {
-            cancellable.reset ();
-            button.sensitive = false;
-            next ();
+            upgrade_system.begin ();
+            //  cancellable.reset ();
+            //  button.sensitive = false;
+            //  next ();
         });
+    }
+
+    private void start () {
+        if (current_state.state != AVAILABLE) {
+            return;
+        }
+
+        cancellable.reset ();
+        next ();
     }
 
     private void next () {
@@ -65,27 +100,39 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
 
         switch (current_step) {
             case PREPARING:
+                update_state (WORKING, "Updating repository list");
                 current_step = UPDATING_REPOS;
                 update_repo_files.begin ();
                 break;
 
             case UPDATING_REPOS:
-                current_step = INSTALLING_UPDATES;
-                update_packages.begin ();
+                update_state (WORKING, "Refreshing cache");
+                current_step = REFRESHING;
+                refresh_cache.begin ();
                 break;
 
-            case INSTALLING_UPDATES:
-                current_step = FINISHED;
-                next ();
+            case REFRESHING:
+                update_state (WORKING, "Upgrading system");
+                current_step = UPGRADING;
+                upgrade_system.begin ();
                 break;
 
-            case FINISHED:
+            case UPGRADING:
                 button.label = "We are finished!";
                 break;
-
-            default:
-                break;
         }
+    }
+
+    private void update_state (State state, string message = "", int progress = 0) {
+        current_state = {
+            state,
+            message,
+            progress
+        };
+
+        warning ("State updates: %s", message);
+
+        state_changed ();
     }
 
     private void throw_fatal_error (Error? e = null, string? step = null) {
@@ -94,6 +141,8 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         if (e != null) {
             critical (step + e.message);
         }
+
+        update_state (ERROR, e.message);
     }
 
     private async void revert_update_repos () {
@@ -105,14 +154,13 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
                     "io.github.leolost2605.updater.system-upgrade-revert.helper",
                     file_name
                 );
-                var err_input_stream = subprocess.get_stderr_pipe ();
 
-                yield subprocess.wait_async (null);
+                Bytes stderr;
+                yield subprocess.communicate_async (null, null, null, out stderr);
 
-                if (subprocess.get_exit_status () != 0) {
-                    uint8[] buffer = new uint8[100];
-                    yield err_input_stream.read_async (buffer);
-                    critical ("Helper failed to revert changes: %s", ((string)buffer));
+                var stderr_data = Bytes.unref_to_data (stderr);
+                if (stderr_data != null) {
+                    critical ("Helper failed to revert changes: %s", ((string)stderr_data));
                 }
             } catch (Error e) {
                 warning ("Failed to create subprocess: %s", e.message);
@@ -175,48 +223,21 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         }
     }
 
-    private async void update_packages () {
-        var task = new Pk.Task () {
-            only_download = true,
-            allow_downgrade = true,
-            allow_reinstall = true
-        };
+    private async void refresh_cache () {
+        var task = new Pk.Task ();
 
         try {
-            var refresh_result = yield task.refresh_cache_async (false, null, () => {});
+            yield task.refresh_cache_async (true, null, () => {});
 
-            if (refresh_result.get_exit_code () != SUCCESS) {
-                // throw_fatal_error (refresh_result.get_error_code (), "Refreshing apt cache.");
-                return;
-            }
+            next ();
         } catch (Error e) {
             throw_fatal_error (e, "Refreshing apt cache.");
             return;
         }
-
-        yield upgrade_system ();
-
-        //  try {
-        //      var upgradable_packes_result = yield task.get_updates_async (0, null, () => {});
-        //      string[] package_ids = {};
-        //      foreach (var package in upgradable_packes_result.get_package_array ()) {
-        //          package_ids += package.package_id;
-        //      }
-
-        //      yield task.update_packages_async (package_ids, null, (progress, type) => {
-        //          if (type == PERCENTAGE) {
-        //              button.label = "%i %".printf (progress.percentage);
-        //          }
-        //      });
-
-        //      next ();
-        //  } catch (Error e) {
-        //      throw_fatal_error (e, "Updating packages.");
-        //  }
     }
 
     private async void upgrade_system () {
-        AptdService aptdaemon;
+        Apt aptdaemon;
         try {
             aptdaemon = yield Bus.get_proxy (BusType.SYSTEM, APTD_DBUS_NAME, APTD_DBUS_PATH);
         } catch (GLib.Error e) {
@@ -224,7 +245,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             return;
         }
 
-        string transaction_id = "";
+        string transaction_id;
         try {
             transaction_id = yield aptdaemon.upgrade_system (false);
         } catch (Error e) {
@@ -232,7 +253,6 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             return;
         }
 
-        AptdTransactionService transaction_proxy;
         try {
             transaction_proxy = yield Bus.get_proxy (BusType.SYSTEM, APTD_DBUS_NAME, transaction_id);
         } catch (GLib.Error e) {
@@ -241,13 +261,18 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         }
 
         transaction_proxy.property_changed.connect ((prop, variant) => {
-            string label;
-            transaction_proxy.get ("status-details", out label);
-            button.label = label;
+            if (prop == "StatusDetails") {
+                update_state (WORKING, (string) variant, current_state.progress);
+            } else if (prop == "Progress") {
+                update_state (WORKING, current_state.status, (int) variant);
+            }
+            warning ("prop changed: %s", prop);
         });
 
         transaction_proxy.finished.connect ((status) => {
             button.label = "Finished with status: " + status;
+            transaction_proxy = null;
+            next ();
         });
 
         try {
