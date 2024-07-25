@@ -46,7 +46,8 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         PREPARING,
         UPDATING_REPOS,
         REFRESHING,
-        UPGRADING
+        UPGRADING,
+        FINALIZING
     }
 
     private CurrentState current_state;
@@ -77,7 +78,7 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
         default_height = 500;
 
         button.clicked.connect (() => {
-            upgrade_system.begin ();
+            start ();
             //  cancellable.reset ();
             //  button.sensitive = false;
             //  next ();
@@ -118,6 +119,12 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
                 break;
 
             case UPGRADING:
+                update_state (WORKING, "Finalizing");
+                current_step = FINALIZING;
+                finalize_upgrade.begin ();
+                break;
+
+            case FINALIZING:
                 button.label = "We are finished!";
                 break;
         }
@@ -279,6 +286,61 @@ public class Updater.MainWindow : Gtk.ApplicationWindow {
             yield transaction_proxy.run ();
         } catch (Error e) {
             warning (e.message);
+        }
+    }
+
+    private async void finalize_upgrade () {
+        yield install_systemd_resolved ();
+        yield touch_network_config ();
+    }
+
+    private async void install_systemd_resolved () {
+        var task = new Pk.Task ();
+        Pk.Results results;
+        try {
+            results = yield task.search_names_async (Pk.Bitfield.from_enums (Pk.Filter.NONE), {"systemd-resolved"}, cancellable, () => {});
+        } catch (Error e) {
+            warning ("Failed to search for systemd-resolved: %s", e.message);
+            return;
+        }
+
+        var package_ids = results.get_package_sack ().get_ids ();
+
+        string? systemd_resolved_package = null;
+        foreach (unowned var id in package_ids) {
+            var split = id.split (";");
+            if (split.length >= 1 && split[0] == "systemd-resolved") {
+                systemd_resolved_package = id;
+                break;
+            }
+        }
+
+        try {
+            yield task.install_packages_async ({systemd_resolved_package}, cancellable, () => {});
+        } catch (Error e) {
+            warning ("Failed to install systmed resolved: %s", e.message);
+        }
+    }
+
+    private async void touch_network_config () {
+        try {
+            var subprocess = new Subprocess (
+                STDERR_PIPE,
+                "pkexec",
+                "touch",
+                "/etc/NetworkManager/conf.d/10-globally-managed-devices.conf"
+            );
+            var err_input_stream = subprocess.get_stderr_pipe ();
+
+            yield subprocess.wait_async (null);
+
+            if (subprocess.get_exit_status () != 0) {
+                uint8[] buffer = new uint8[100];
+                yield err_input_stream.read_async (buffer);
+                throw_fatal_error (new IOError.FAILED ((string)buffer), "Touching network config.");
+            }
+        } catch (Error e) {
+            warning ("Failed to create subprocess: %s", e.message);
         }
     }
 }
